@@ -1,0 +1,32 @@
+# Dependencies
+node_modules/
+
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+.envrc
+.npmrc
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+
+# Generated Prisma client and build output
+/generated/prisma
+dist/
+build/
+coverage/
+
+# Logs and temporary files
+*.log
+*.tmp
+*.temp
+*.tsbuildinfo
+
+# Editor and OS files
+.vscode/
+.DS_Store
+Thumbs.db
