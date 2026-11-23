@@ -17,9 +17,9 @@ test('real API: three planes, playback, result, retry and error recovery', async
     await expect(page.locator('canvas')).toBeVisible();
     await expect(page.getByRole('button', { name: 'THROW', exact: true })).toBeEnabled();
     await page.screenshot({ path: 'test-results/ready.png' });
-    await page.getByLabel('Угол запуска').focus();
+    await page.getByLabel('Launch angle').focus();
     await page.keyboard.press('Home');
-    await page.getByLabel('Скорость', { exact: true }).focus();
+    await page.getByLabel('Speed', { exact: true }).focus();
     await page.keyboard.press('Home');
     for (const planeId of ['BasicPlane', 'Glider', 'Dart']) {
       await page.getByRole('button', { name: planeId, exact: true }).click();
@@ -38,9 +38,9 @@ test('real API: three planes, playback, result, retry and error recovery', async
     }
     // Known successful inputs; only the server's response supplies the displayed score.
     await page.getByRole('button', { name: 'BasicPlane', exact: true }).click();
-    await page.getByLabel('Угол запуска').focus();
+    await page.getByLabel('Launch angle').focus();
     for (let i = 0; i < 15; i++) await page.keyboard.press('ArrowRight');
-    await page.getByLabel('Скорость', { exact: true }).focus();
+    await page.getByLabel('Speed', { exact: true }).focus();
     for (let i = 0; i < 4; i++) await page.keyboard.press('ArrowRight');
     const hitReply = page.waitForResponse(r => r.url().includes('/attempts') && r.request().method() === 'POST');
     await page.getByRole('button', { name: 'THROW', exact: true }).click();
@@ -56,7 +56,7 @@ test('real API: three planes, playback, result, retry and error recovery', async
     // Deliberate HTTP error: browser may log the expected 503, so console check is above.
     await page.route('**/api/sessions/*/attempts', route => route.fulfill({ status: 503, body: '{}' }), { times: 1 });
     await page.getByRole('button', { name: 'THROW', exact: true }).click();
-    await expect(page.getByRole('alert')).toContainText('Сервер временно недоступен');
+    await expect(page.getByRole('alert')).toContainText('The server is temporarily unavailable');
     await expect(page.getByRole('button', { name: 'THROW', exact: true })).toBeEnabled();
     expect(await db.flightAttempt.count({ where: { sessionId: sessionIds[0] } })).toBe(4);
   } finally {

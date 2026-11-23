@@ -20,21 +20,21 @@ async function post(path: string, body?: unknown): Promise<unknown> {
       signal: AbortSignal.timeout(15000),
     });
   } catch {
-    throw new ApiError('Нет ответа от сервера. Проверьте подключение и запуск backend.');
+    throw new ApiError('The server is not responding. Check your connection and try again.');
   }
   if (!response.ok) {
-    const message = response.status === 404 ? 'Сессия больше не существует. Следующий бросок создаст новую.'
-      : response.status === 400 ? 'Проверьте самолёт, угол и скорость запуска.'
-      : 'Сервер временно недоступен. Попробуйте ещё раз.';
+    const message = response.status === 404 ? 'This session has expired. Your next throw will start a new one.'
+      : response.status === 400 ? 'Check your plane, launch angle, and speed.'
+      : 'The server is temporarily unavailable. Please try again.';
     throw new ApiError(message, response.status);
   }
   try { return await response.json(); }
-  catch { throw new ApiError('Сервер вернул некорректный ответ.'); }
+  catch { throw new ApiError('The server returned an invalid response. Please try again.'); }
 }
 
 export async function createSession(): Promise<string> {
   const data = await post('/sessions') as { id?: unknown };
-  if (!data || typeof data.id !== 'string') throw new ApiError('Не удалось создать сессию.');
+  if (!data || typeof data.id !== 'string') throw new ApiError('Unable to start a session. Please try again.');
   return data.id;
 }
 
@@ -48,7 +48,7 @@ export async function throwPlane(sessionId: string, planeId: PlaneId, angle: num
         (i === 0 ? p.time === 0 : p.time > data.points[i - 1].time)) ||
       !Number.isFinite(data.duration) || data.duration !== data.points.at(-1)!.time ||
       !Number.isFinite(data.score) || !Number.isFinite(data.distance) || typeof data.success !== 'boolean') {
-    throw new ApiError('Не удалось прочитать траекторию сервера. Повторите попытку.');
+    throw new ApiError('Unable to read the flight path. Please try again.');
   }
   return data;
 }

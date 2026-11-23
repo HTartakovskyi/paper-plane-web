@@ -6,9 +6,9 @@ import type { PlaneId } from '@paper-plane/game-math';
 import type { Attempt } from './api';
 
 export const AIRCRAFT = {
-  BasicPlane: { name: 'Basic', subtitle: 'Классическая складка', color: '#f5f7f3', width: 2, length: 1 },
-  Glider: { name: 'Glider', subtitle: 'Широкое крыло', color: '#f4b766', width: 3.3, length: 0.85 },
-  Dart: { name: 'Dart', subtitle: 'Узкий, стремительный', color: '#64bab4', width: 1.2, length: 1.4 },
+  BasicPlane: { name: 'Basic', subtitle: 'The classic fold', color: '#f5f7f3', width: 2, length: 1 },
+  Glider: { name: 'Glider', subtitle: 'Wide-wing glider', color: '#f4b766', width: 3.3, length: 0.85 },
+  Dart: { name: 'Dart', subtitle: 'Sleek and streamlined', color: '#64bab4', width: 1.2, length: 1.4 },
 };
 export const ZONE_COLORS = ['#a1c8bd', '#54a9a1', '#236e77', '#f4b766'];
 
@@ -32,6 +32,7 @@ function PaperPlane({ planeId }: { planeId: PlaneId }) {
 function Framing({ attempt }: { attempt: Attempt | null }) {
   const { camera, size } = useThree();
   useLayoutEffect(() => {
+    if (size.width <= 0 || size.height <= 0) return;
     const bounds = new THREE.Box3();
     const r = DEFAULT_TARGET.size / 2;
     bounds.expandByPoint(new THREE.Vector3(DEFAULT_START.x - 8, 0, -r));
@@ -97,7 +98,7 @@ export function Scene({ planeId, angle, attempt, onFinish, onProgress }: {
 }) {
   const target = DEFAULT_TARGET;
   return <Canvas shadows dpr={[1, 1.5]} camera={{ fov: 42, near: 0.1, far: 1500 }}
-    fallback={<div className="scene-error">Для 3D-сцены нужен браузер с поддержкой WebGL.</div>}>
+    fallback={<div className="scene-error">This 3D scene requires a browser with WebGL support.</div>}>
     <color attach="background" args={['#e6efeb']} />
     <ambientLight intensity={1.6} />
     <directionalLight position={[35, 100, 35]} intensity={2.8} castShadow shadow-mapSize={[2048, 2048]}
