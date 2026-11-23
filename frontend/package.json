@@ -1,0 +1,31 @@
+{
+  "name": "paper-plane-frontend",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "build:math": "tsc -p ../shared/game-math/tsconfig.json",
+    "predev": "npm run build:math",
+    "dev": "vite --host 127.0.0.1",
+    "build": "npm run build:math && tsc --noEmit && vite build",
+    "preview": "vite preview --host 127.0.0.1",
+    "test:e2e": "playwright test"
+  },
+  "dependencies": {
+    "@paper-plane/game-math": "file:../shared/game-math",
+    "@react-three/fiber": "^9.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "three": "^0.180.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.58.0",
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@types/three": "^0.180.0",
+    "@vitejs/plugin-react": "latest",
+    "typescript": "^6.0.2",
+    "vite": "^8.0.0"
+  }
+}

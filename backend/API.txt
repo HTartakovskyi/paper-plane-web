@@ -1,0 +1,89 @@
+Paper Plane Web — минимальный API
+
+Запуск из D:\Projects\paper-plane-web\backend (PowerShell)
+  npm.cmd ci
+  npm.cmd run db:migrate
+  npm.cmd run build
+  npm.cmd run start:prod
+Для разработки: npm.cmd run start:dev
+
+DATABASE_URL должен быть задан в окружении или локальном backend/.env.
+Секреты не помещать в репозиторий. main.ts загружает .env, только если файл существует.
+PORT берётся из окружения (по умолчанию 3000).
+Сборка/prestart собирают локальный пакет game-math и генерируют Prisma Client.
+start:prod запускает dist/src/main.js — соответствует существующему rootDir backend.
+Миграции выполняются отдельной явной командой, не при старте приложения.
+Нужен рабочий PostgreSQL; альтернативного хранилища в памяти нет.
+
+POST /sessions
+  Тело не требуется.
+  201: { "id": "<UUID v4>" }
+
+POST /sessions/:sessionId/attempts
+  Content-Type: application/json
+  { "planeId": "BasicPlane", "angle": 30, "speed": 14 }
+  planeId: BasicPlane | Glider | Dart.
+  angle: число в градусах [-45,80].
+  speed: МОДЕЛЬНАЯ скорость [2,30], не значение интерфейса [1,15].
+    Клиент преобразует отображаемую скорость через displayToModelSpeed(),
+    например UI=7 -> API=14. Сервер повторно не умножает скорость.
+  Дробные значения разрешены. Строки вместо чисел, лишние поля, параметры
+  сцены, готовые очки и результаты отклоняются (400).
+  201: {
+    id, sessionId, planeId, angle, speed,
+    score, success, distance, createdAt,
+    points: [{ x, y, z, time }, ...],
+    duration, termination, distanceFromCenter
+  }
+  Траектория, результат и distance вычисляются только simulateFlight(input)
+  из @paper-plane/game-math. Используются DEFAULT_START и DEFAULT_TARGET пакета.
+  time/duration — секунды; distance — горизонтальное смещение, не длина дуги.
+  termination: target | ground | timeout.
+  distanceFromCenter может быть null, если плоскость мишени не достигнута.
+  Ответ об успехе возвращается только после сохранения попытки в PostgreSQL.
+
+GET /sessions/:sessionId/attempts
+  200: массив { id, sessionId, planeId, angle, speed, score, success,
+               distance, createdAt }.
+  Пустая история существующей сессии — [].
+  Порядок: createdAt ASC, затем id ASC для одинаковых временных отметок.
+  Точки траектории не хранятся в БД и не возвращаются в истории.
+
+Ошибки
+  400 — неверный UUID v4, тело JSON, параметры запуска или лишние поля.
+  404 — сессия не существует (в том числе удалена перед вставкой попытки).
+  503 — операция БД не выполнена. Ответ не содержит деталей драйвера/подключения.
+  Формат: стандартный NestJS { statusCode, message, error }.
+
+Схема и миграция
+  Добавлено обязательное строковое поле FlightAttempt.planeId.
+  Миграция 20261122200000_add_plane_id сохраняет прежние строки,
+  присваивая им BasicPlane как значение совместимости. Это не восстановление
+  исторически использованной модели: раньше planeId не сохранялся.
+  После заполнения временный DEFAULT удаляется: новые попытки обязаны указать planeId.
+  Никаких траекторий, пользователей, Coins или других миссий в схеме нет.
+
+Проверки
+  npm.cmd run build
+  node node_modules/typescript/bin/tsc --noEmit -p tsconfig.json
+  npm.cmd test
+  npm.cmd run test:e2e
+  npm.cmd run lint
+  Из корня репозитория:
+    node --test shared/game-math/test/game-math.test.mjs
+
+API e2e использует настоящую PostgreSQL по DATABASE_URL, после применения миграций.
+Желательно указывать отдельную тестовую БД через окружение.
+Тесты создают собственные сессии, собирают их ID и удаляют только эти сессии
+в afterAll (попытки удаляются по существующему FK CASCADE). Чужие строки не трогают.
+Права CREATE SCHEMA не требуются. Тесты не пропускаются при недоступной БД.
+Единственный spy эмулирует отказ вставки для проверки безопасного ответа 503;
+остальные проверки используют настоящий Prisma Client и PostgreSQL.
+
+Результаты проверки реализации
+  23 API-теста + 1 существующий unit-тест + 19 тестов математики прошли.
+  Проверены три самолёта, записи Prisma, история, изоляция сессий, попадание/промах,
+  границы ввода, поддельные результаты, 400/404/503 и отсутствие записи при отказе.
+  Сборка и проверка типов (включая тесты), lint прошли.
+  Собранный сервер проверен отдельными HTTP-запросами и остановлен.
+  В текущем окружении роль БД не может создавать схемы; миграция таблицы применена.

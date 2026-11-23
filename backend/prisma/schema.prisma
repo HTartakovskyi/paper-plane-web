@@ -19,6 +19,7 @@ model GameSession {
 model FlightAttempt {
   id        String   @id @default(uuid())
   sessionId String
+  planeId   String
 
   angle     Float
   speed     Float

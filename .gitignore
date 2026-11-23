@@ -21,6 +21,10 @@ coverage/
 
 # Logs
 *.log
+*.tmp
+*.temp
+test-results/
+playwright-report/
 
 # Editor and OS
 .vscode/

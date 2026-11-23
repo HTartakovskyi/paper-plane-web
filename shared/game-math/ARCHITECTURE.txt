@@ -1,0 +1,102 @@
+Paper Plane Web — этап 1: архитектура и игровая математика
+
+Минимальная структура приложения
+  shared/game-math: чистый TypeScript, конфигурация + геометрия + симуляция.
+  backend: существующий NestJS/Prisma/PostgreSQL. На следующем этапе вызывает
+    simulateFlight, сохраняет попытку и возвращает точки и результат клиенту.
+  frontend: будущий React + Three.js. Визуализирует серверные точки по их time.
+    Тот же пакет используется для параметров и, если нужно, локального предпросмотра.
+    Сохранённый результат определяет сервер, а не данные из браузера.
+Новых контроллеров, API, схем БД, UI и зависимостей рендеринга здесь нет.
+
+Файлы пакета
+  src/config.ts: исходные коэффициенты, ограничения, преобразование скорости.
+  src/target.ts: горизонтальная мишень, пересечение отрезка с плоскостью, очки.
+  src/flight.ts: начальное состояние, один шаг, законченная попытка.
+  src/index.ts: экспорт публичных функций и типов.
+  test/game-math.test.mjs: Node test runner, без стороннего тестового фреймворка.
+  package.json / tsconfig.json: самостоятельная ESM-сборка + декларации типов.
+
+Использование после сборки
+  import { simulateFlight, displayToModelSpeed } from '@paper-plane/game-math';
+  const flight = simulateFlight({
+    planeId: 'BasicPlane', angle: 30, speed: displayToModelSpeed(7),
+  });
+  flight.points: сериализуемые {x,y,z,time}, время в секундах.
+  flight.result: success, score, distanceFromCenter (null, если плоскость не достигнута).
+  flight.termination: target | ground | timeout.
+  flight.distance: горизонтальное смещение от старта, не длина пути.
+Пакет можно подключить локальной зависимостью file:../shared/game-math
+из backend или frontend. Сначала собрать пакет; экспорт указывает на dist,
+не на внешние .ts-файлы, поэтому rootDir существующего backend менять не нужно.
+Само подключение к приложениям оставлено для этапов API и интерфейса.
+
+Сборка и тесты без установки зависимостей (из корня репозитория)
+  node backend/node_modules/typescript/bin/tsc -p shared/game-math/tsconfig.json
+  node --test shared/game-math/test/game-math.test.mjs
+Для самостоятельной установки у пакета есть только devDependency TypeScript.
+После установки его devDependencies обычная команда: npm test
+(в PowerShell с блокировкой npm.ps1 использовать npm.cmd test).
+Runtime-зависимостей нет. lib=ES2022, types=[]: сборка не получает DOM/Node
+или типы NestJS/React/Three.js. dist игнорируется существующим .gitignore.
+
+Оригинал и происхождение
+  https://github.com/HTartakovskyi/paper-plane-roblox/tree/6a9df0f98e8a690ee6bcec87550dc7d2d40aa560
+  src/ReplicatedStorage/FlightModel.luau: Step, строки 37–146.
+  src/ReplicatedStorage/FlightSystem/FlightSimulator.luau:
+    CreateState, GetWorldPosition, Step, BuildTrajectory.
+  src/ReplicatedStorage/FlightSystem/FlightConfig.luau: шаг, масштаб, предел времени.
+  src/ReplicatedStorage/FlightSystem/PlaneConfig.luau: три набора коэффициентов.
+  src/ReplicatedStorage/FlightSystem/FlightInputConfig.luau: диапазоны и скорость x2.
+  src/ReplicatedStorage/LevelSystem/MissionMath.luau:
+    EvaluateTarget, FindTargetIntersection, EvaluateTargetTrajectory.
+  src/ReplicatedStorage/LevelSystem/LevelConfig.luau:
+    DEFAULT_TARGET_ZONES и миссия 2 (First Target).
+
+Сохранённая математика
+  dx = speed*cos(angle*pi/180); dy = speed*sin(angle*pi/180).
+  L = 0.08*LiftMultiplier; D = 0.01*DragMultiplier.
+  dx = dx - dy*L
+  dy = dy + dx*L  (уже обновлённый dx!)
+  dx = dx - dx*D
+  dy = dy - dy*D
+  dy = dy - 0.5
+  horizontalDistance += dx*0.1; verticalDistance += dy*0.1.
+Не заменять вычитание сопротивления умножением на (1-D): порядок операций
+с плавающей точкой сохранён буквально. Масса в полёте не участвует.
+Один шаг соответствует 0.1 секунды; предельная длительность 30 секунд / 300 шагов.
+Физика не получает dt от рендера и не зависит от FPS.
+Последний сегмент обрезается по пересечению, поэтому его время может быть короче 0.1.
+stepFlight — низкоуровневая функция для состояния из createFlightState/stepFlight;
+simulateFlight проверяет пользовательские входные параметры перед запуском.
+
+Явные решения MVP и исправление исходной архитектуры
+  - Мишень горизонтальная, без поворотов: центр (80,0.2,0), диаметр 50,
+    как в First Target. Произвольные повороты CFrame в MVP не входят.
+  - Фиксированный старт (16,7,0), земля Y=0. Это настройка веб-MVP, а не
+    утверждение о точной позиции руки персонажа Roblox. Направление — к центру цели.
+  - Зоны: радиусы (size/2)*[0.5,0.375,0.25,0.125], очки [10,25,50,100].
+    Внешняя часть физического диска имеет 0 очков. Не растягивать зоны до края
+    при построении будущей 3D-мишени: это изменило бы правила оригинала.
+  - Угол [-45,80], модельная скорость [2,30]; дробные значения допустимы,
+    как при ручном вводе оригинала. Шаг кнопок не является ограничением API.
+  - Roblox BeginAttempt оценивает Target по полной траектории до её обрезания.
+    Здесь результат определяется первым физическим контактом с диском;
+    попадание после столкновения с землёй не засчитывается. Результат и анимация
+    используют одну завершённую траекторию. Динамику после удара не моделируем.
+  - evaluateTargetTrajectory отдельно сохраняет правило первого пересечения
+    плоскости из MissionMath; использовать её только для ограниченной траектории.
+    evaluateTarget ожидает уже найденную точку пересечения, не проверяет её Y.
+  - Таймаут считается неудачей. Никаких Coins, магазинов или других миссий.
+
+Проверки и ограничения эталонов
+  Проверены коэффициенты, исходная скорость, порядок шага, десять шагов каждого
+  самолёта, все границы зон, пропуск между отсчётами, параллельность, первый контакт,
+  земля, таймаут, дробные/некорректные вводы, детерминизм, сериализация и смена курса.
+  Перебор 1170 комбинаций кнопок подтверждает достижимость всех четырёх оценок
+  каждым самолётом на выбранной миссии.
+  Числовые эталоны на 10 шагов получены независимо через System.Decimal
+  по формулам Luau при angle=0, speed=14; допустимая погрешность double — 1e-11.
+  Это НЕ результаты запуска Roblox/Luau: такой среды в окружении нет.
+  Для дальнейшей строгой сверки можно экспортировать состояния из Roblox Studio.
+  Визуализация, API, сохранение попытки и интеграция локального пакета ещё не созданы.
