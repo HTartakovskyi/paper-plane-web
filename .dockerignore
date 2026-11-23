@@ -1,0 +1,17 @@
+**/node_modules
+**/dist
+**/build
+**/generated
+**/.env
+**/.env.*
+**/.npmrc
+**/*.pem
+**/*.key
+**/*.p12
+.git
+**/.agents
+**/.codex
+**/coverage
+**/test-results
+**/playwright-report
+frontend

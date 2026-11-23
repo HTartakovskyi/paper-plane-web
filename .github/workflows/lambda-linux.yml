@@ -1,0 +1,39 @@
+name: Lambda Linux compatibility
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'backend/**'
+      - 'shared/game-math/**'
+      - '.dockerignore'
+      - '.github/workflows/lambda-linux.yml'
+permissions:
+  contents: read
+jobs:
+  linux-node24:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Resolve and record immutable Lambda image
+        shell: bash
+        run: |
+          docker pull --platform linux/amd64 public.ecr.aws/lambda/nodejs:24
+          image=$(docker inspect --format '{{index .RepoDigests 0}}' public.ecr.aws/lambda/nodejs:24)
+          echo "LAMBDA_IMAGE=$image" >> "$GITHUB_ENV"
+          echo "$image" > lambda-image.txt
+      - name: Build ZIP and test unpacked artifact in Lambda runtime
+        run: >-
+          docker build --platform linux/amd64
+          --build-arg LAMBDA_IMAGE="$LAMBDA_IMAGE"
+          -f backend/Dockerfile.lambda-check --target export
+          --output type=local,dest=backend/build/linux .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: paper-plane-lambda-linux-node24-x64
+          path: |
+            backend/build/linux/paper-plane-lambda.zip
+            backend/build/linux/linux-check.txt
+            lambda-image.txt
+          if-no-files-found: error
+          retention-days: 7

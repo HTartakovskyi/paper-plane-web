@@ -7,6 +7,7 @@ import {
 
 import { PrismaClient } from '../../generated/prisma/client.js';
 import { PrismaPg } from '@prisma/adapter-pg';
+import { connectionConfig } from './connection-config.js';
 
 @Injectable()
 export class PrismaService
@@ -14,22 +15,8 @@ export class PrismaService
   implements OnModuleInit, OnModuleDestroy
 {
   constructor() {
-    const connectionString = process.env.DATABASE_URL;
-
-    if (!connectionString) {
-      throw new Error('DATABASE_URL is not configured');
-    }
-
-    let schema: string;
-    try {
-      schema = new URL(connectionString).searchParams.get('schema') ?? 'public';
-    } catch {
-      throw new Error('DATABASE_URL is invalid');
-    }
-    const adapter = new PrismaPg({
-      connectionString,
-      connectionTimeoutMillis: 3000,
-    }, { schema });
+    const { pool, schema } = connectionConfig();
+    const adapter = new PrismaPg(pool, { schema });
 
     super({ adapter });
   }

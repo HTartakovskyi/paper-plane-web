@@ -56,8 +56,9 @@ export class SessionsService {
   async getAttempts(sessionId: string) {
     await this.requireSession(sessionId);
     const rows = await this.database(() => this.prisma.flightAttempt.findMany({
-      where: { sessionId }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      // Return the latest 100, still in chronological order in the API response.
+      where: { sessionId }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: 100,
     }));
-    return rows.map(attemptResponse);
+    return rows.reverse().map(attemptResponse);
   }
 }

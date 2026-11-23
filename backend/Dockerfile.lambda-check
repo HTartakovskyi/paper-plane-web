@@ -1,0 +1,30 @@
+# Override with image@sha256:... to pin the exact build/runtime for a release.
+ARG LAMBDA_IMAGE=public.ecr.aws/lambda/nodejs:24
+FROM ${LAMBDA_IMAGE} AS build
+RUN dnf install -y python3 && dnf clean all
+WORKDIR /workspace
+COPY shared/game-math/package.json shared/game-math/tsconfig.json ./shared/game-math/
+COPY shared/game-math/src ./shared/game-math/src
+COPY shared/game-math/test ./shared/game-math/test
+COPY backend ./backend
+WORKDIR /workspace/backend
+RUN npm ci && npm run package:lambda && npm test && \
+    node node_modules/typescript/bin/tsc --noEmit --incremental false && \
+    node --test ../shared/game-math/test/game-math.test.mjs
+RUN mkdir /output && cp -a build/lambda-* /output/artifact && \
+    node scripts/verify-artifact.mjs /output/artifact --linux && \
+    python3 scripts/archive-lambda.py /output/artifact /output/paper-plane-lambda.zip && \
+    python3 -m zipfile -e /output/paper-plane-lambda.zip /output/unpacked
+
+FROM ${LAMBDA_IMAGE} AS runtime-check
+COPY --from=build /output/unpacked ${LAMBDA_TASK_ROOT}
+COPY backend/scripts/verify-artifact.mjs backend/scripts/smoke-artifact.mjs /checks/
+# Only unpacked production dependencies exist here, without build-time node_modules.
+RUN node /checks/verify-artifact.mjs ${LAMBDA_TASK_ROOT} --linux && \
+    node /checks/smoke-artifact.mjs ${LAMBDA_TASK_ROOT} --linux && \
+    echo 'Linux x64 / Node24 runtime checks passed; DB lifecycle stubbed' > /checks/result.txt
+
+FROM scratch AS export
+COPY --from=build /output/paper-plane-lambda.zip /
+# Forces runtime-check to execute before exporting the ZIP.
+COPY --from=runtime-check /checks/result.txt /linux-check.txt
