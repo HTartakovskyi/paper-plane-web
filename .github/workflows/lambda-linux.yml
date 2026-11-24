@@ -5,6 +5,7 @@ on:
     paths:
       - 'backend/**'
       - 'shared/game-math/**'
+      - 'infra/**'
       - '.dockerignore'
       - '.github/workflows/lambda-linux.yml'
 permissions:
@@ -15,6 +16,14 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Validate infrastructure
+        run: |
+          pip install cfn-lint==1.61.0
+          cfn-lint -t infra/foundation.json infra/app.json -r us-east-2
+          python infra/validate-guard.py
       - name: Resolve and record immutable Lambda image
         shell: bash
         run: |
@@ -26,13 +35,14 @@ jobs:
         run: >-
           docker build --platform linux/amd64
           --build-arg LAMBDA_IMAGE="$LAMBDA_IMAGE"
-          -f backend/Dockerfile.lambda-check --target export
+          -f backend/Dockerfile.lambda-check --target export-all
           --output type=local,dest=backend/build/linux .
       - uses: actions/upload-artifact@v4
         with:
           name: paper-plane-lambda-linux-node24-x64
           path: |
             backend/build/linux/paper-plane-lambda.zip
+            backend/build/linux/paper-plane-migration.zip
             backend/build/linux/linux-check.txt
             lambda-image.txt
           if-no-files-found: error

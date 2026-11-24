@@ -28,3 +28,14 @@ FROM scratch AS export
 COPY --from=build /output/paper-plane-lambda.zip /
 # Forces runtime-check to execute before exporting the ZIP.
 COPY --from=runtime-check /checks/result.txt /linux-check.txt
+
+FROM build AS migration-build
+WORKDIR /migration
+COPY infra/migration/package*.json ./
+RUN npm ci --omit=dev --no-audit --no-fund
+COPY infra/migration/index.mjs infra/migration/prisma.config.ts ./
+COPY backend/prisma ./prisma
+RUN python3 /workspace/backend/scripts/archive-lambda.py /migration /output/paper-plane-migration.zip
+
+FROM export AS export-all
+COPY --from=migration-build /output/paper-plane-migration.zip /

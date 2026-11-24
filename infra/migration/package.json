@@ -1,0 +1,6 @@
+{
+  "name": "paper-plane-migration-runner",
+  "private": true,
+  "type": "module",
+  "dependencies": { "prisma": "7.10.1", "pg": "8.23.1" }
+}

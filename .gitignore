@@ -35,5 +35,10 @@ Thumbs.db
 .claude/
 .agents/
 
+# Local deployment tools, private inputs, and generated artifacts
+.deploy-tools/
+.deploy-private/
+.deploy/
+
 # TypeScript incremental build cache
 *.tsbuildinfo
