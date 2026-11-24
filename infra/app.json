@@ -330,7 +330,7 @@
           "x86_64"
         ],
         "Handler": "index.handler",
-        "MemorySize": 1024,
+        "MemorySize": 512,
         "Timeout": 120,
         "Role": {
           "Fn::GetAtt": [

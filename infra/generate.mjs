@@ -44,7 +44,7 @@ for (const name of ['Api', 'Migration']) {
   }, 'Dedicated runtime role; ENI wildcard is required by Lambda VPC integration.', ['No global IAM policy changes; function code cannot manage ENIs; no runtime secret read.']);
   R[`${name}Function`] = resource('AWS::Lambda::Function', {
     FunctionName: sub(`\${AWS::StackName}-${name.toLowerCase()}`), Runtime: 'nodejs24.x', Architectures: ['x86_64'], Handler: 'index.handler',
-    MemorySize: name === 'Api' ? 512 : 1024, Timeout: name === 'Api' ? 15 : 120,
+    MemorySize: 512, Timeout: name === 'Api' ? 15 : 120,
     Role: att(`${name}Role`, 'Arn'), Code: { S3Bucket: ref('ArtifactBucket'), S3Key: ref(name === 'Api' ? 'ApiKey' : 'MigrationKey') },
     VpcConfig: { SubnetIds: ref('SubnetIds'), SecurityGroupIds: [ref('FunctionSecurityGroup')] },
     Environment: { Variables: { DATABASE_URL: sub('{{resolve:secretsmanager:${DatabaseSecretArn}:SecretString:DATABASE_URL}}'), DATABASE_SSL: 'verify-full', DATABASE_CA_FILE: '/var/runtime/ca-cert.pem', DATABASE_POOL_MAX: '1', NODE_EXTRA_CA_CERTS: '/var/runtime/ca-cert.pem', API_RATE_LIMIT: '120', NODE_ENV: 'production' } },

@@ -1,6 +1,9 @@
 import { displayToModelSpeed } from '@paper-plane/game-math';
 import type { FlightPoint, PlaneId } from '@paper-plane/game-math';
 
+// Default same-origin mode remains suitable for CloudFront and local development.
+const apiBase = (import.meta.env.VITE_API_BASE_URL || '/api').replace(/\/$/, '');
+
 export interface Attempt {
   id: string; sessionId: string; planeId: PlaneId; angle: number; speed: number;
   points: FlightPoint[]; score: number; success: boolean; distance: number;
@@ -14,7 +17,7 @@ export class ApiError extends Error {
 async function post(path: string, body?: unknown): Promise<unknown> {
   let response: Response;
   try {
-    response = await fetch(`/api${path}`, {
+    response = await fetch(`${apiBase}${path}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: body === undefined ? undefined : JSON.stringify(body),
       signal: AbortSignal.timeout(15000),

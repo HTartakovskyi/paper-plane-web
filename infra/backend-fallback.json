@@ -1,0 +1,566 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "Paper Plane backend using existing private VPC migration stack; HTTP API and Lambda, no CloudFront, NAT or public RDS. Frontend origin set only after hosting approval.",
+  "Metadata": {
+    "AWSToolsMetrics": {
+      "AWSAgentToolkit": "aws-cloudformation@3"
+    },
+    "com.aws.cloudformation.Context": {
+      "why": "Seven-day MVP; existing RDS remains outside stack ownership.",
+      "must": [
+        "No NAT, no public database, no RDS replacement."
+      ]
+    }
+  },
+  "Resources": {
+    "FunctionSecurityGroup": {
+      "Type": "AWS::EC2::SecurityGroup",
+      "Metadata": {
+        "com.aws.cloudformation.Context": {
+          "why": "API and migration runner share ENIs and private database access.",
+          "must": [
+            "No internet ingress or NAT."
+          ]
+        }
+      },
+      "Properties": {
+        "GroupDescription": "Paper Plane functions: only PostgreSQL egress",
+        "VpcId": {
+          "Ref": "VpcId"
+        },
+        "SecurityGroupEgress": [
+          {
+            "IpProtocol": "tcp",
+            "FromPort": 5432,
+            "ToPort": 5432,
+            "DestinationSecurityGroupId": {
+              "Ref": "DatabaseSecurityGroup"
+            }
+          }
+        ]
+      }
+    },
+    "DatabaseIngress": {
+      "Type": "AWS::EC2::SecurityGroupIngress",
+      "Metadata": {
+        "com.aws.cloudformation.Context": {
+          "why": "Add one scoped rule; leave existing database and rules intact.",
+          "must": [
+            "Source must be the application security group, never a public CIDR."
+          ]
+        }
+      },
+      "Properties": {
+        "GroupId": {
+          "Ref": "DatabaseSecurityGroup"
+        },
+        "IpProtocol": "tcp",
+        "FromPort": 5432,
+        "ToPort": 5432,
+        "SourceSecurityGroupId": {
+          "Ref": "FunctionSecurityGroup"
+        },
+        "Description": "Paper Plane experiment functions only"
+      }
+    },
+    "ApiLogs": {
+      "Type": "AWS::Logs::LogGroup",
+      "Metadata": {
+        "com.aws.cloudformation.Context": {
+          "why": "Short retention limits experiment log charges.",
+          "must": []
+        }
+      },
+      "Properties": {
+        "LogGroupName": {
+          "Fn::Sub": "/aws/lambda/${AWS::StackName}-api"
+        },
+        "RetentionInDays": 7
+      }
+    },
+    "ApiRole": {
+      "Type": "AWS::IAM::Role",
+      "Metadata": {
+        "com.aws.cloudformation.Context": {
+          "why": "Dedicated runtime role; ENI wildcard is required by Lambda VPC integration.",
+          "must": [
+            "No global IAM policy changes; function code cannot manage ENIs; no runtime secret read."
+          ]
+        }
+      },
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "lambda.amazonaws.com"
+              },
+              "Action": "sts:AssumeRole"
+            }
+          ]
+        },
+        "Policies": [
+          {
+            "PolicyName": "Runtime",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "logs:CreateLogStream",
+                    "logs:PutLogEvents"
+                  ],
+                  "Resource": {
+                    "Fn::GetAtt": [
+                      "ApiLogs",
+                      "Arn"
+                    ]
+                  }
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "ec2:CreateNetworkInterface",
+                    "ec2:DescribeNetworkInterfaces",
+                    "ec2:DescribeSubnets",
+                    "ec2:DeleteNetworkInterface",
+                    "ec2:AssignPrivateIpAddresses",
+                    "ec2:UnassignPrivateIpAddresses"
+                  ],
+                  "Resource": "*"
+                },
+                {
+                  "Effect": "Deny",
+                  "Action": [
+                    "ec2:CreateNetworkInterface",
+                    "ec2:DeleteNetworkInterface",
+                    "ec2:AssignPrivateIpAddresses",
+                    "ec2:UnassignPrivateIpAddresses"
+                  ],
+                  "Resource": "*",
+                  "Condition": {
+                    "ArnEquals": {
+                      "lambda:SourceFunctionArn": {
+                        "Fn::Sub": "arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:${AWS::StackName}-api"
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "ApiFunction": {
+      "Type": "AWS::Lambda::Function",
+      "Metadata": {
+        "com.aws.cloudformation.Context": {
+          "why": "Reuse tested Linux ZIP with cached NestJS startup.",
+          "must": [
+            "Verified database TLS; migrations never run on API startup."
+          ]
+        }
+      },
+      "Properties": {
+        "FunctionName": {
+          "Fn::Sub": "${AWS::StackName}-api"
+        },
+        "Runtime": "nodejs24.x",
+        "Architectures": [
+          "x86_64"
+        ],
+        "Handler": "index.handler",
+        "MemorySize": 512,
+        "Timeout": 15,
+        "Role": {
+          "Fn::GetAtt": [
+            "ApiRole",
+            "Arn"
+          ]
+        },
+        "Code": {
+          "S3Bucket": {
+            "Ref": "ArtifactBucket"
+          },
+          "S3Key": {
+            "Ref": "ApiKey"
+          }
+        },
+        "VpcConfig": {
+          "SubnetIds": {
+            "Ref": "SubnetIds"
+          },
+          "SecurityGroupIds": [
+            {
+              "Ref": "FunctionSecurityGroup"
+            }
+          ]
+        },
+        "Environment": {
+          "Variables": {
+            "DATABASE_URL": {
+              "Fn::Sub": "{{resolve:secretsmanager:${DatabaseSecretArn}:SecretString:DATABASE_URL}}"
+            },
+            "DATABASE_SSL": "verify-full",
+            "DATABASE_CA_FILE": "/var/runtime/ca-cert.pem",
+            "DATABASE_POOL_MAX": "1",
+            "NODE_EXTRA_CA_CERTS": "/var/runtime/ca-cert.pem",
+            "API_RATE_LIMIT": "120",
+            "NODE_ENV": "production"
+          }
+        }
+      },
+      "DependsOn": [
+        "DatabaseIngress",
+        "ApiLogs"
+      ]
+    },
+    "MigrationLogs": {
+      "Type": "AWS::Logs::LogGroup",
+      "Metadata": {
+        "com.aws.cloudformation.Context": {
+          "why": "Short retention limits experiment log charges.",
+          "must": []
+        }
+      },
+      "Properties": {
+        "LogGroupName": {
+          "Fn::Sub": "/aws/lambda/${AWS::StackName}-migration"
+        },
+        "RetentionInDays": 7
+      }
+    },
+    "MigrationRole": {
+      "Type": "AWS::IAM::Role",
+      "Metadata": {
+        "com.aws.cloudformation.Context": {
+          "why": "Dedicated runtime role; ENI wildcard is required by Lambda VPC integration.",
+          "must": [
+            "No global IAM policy changes; function code cannot manage ENIs; no runtime secret read."
+          ]
+        }
+      },
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "lambda.amazonaws.com"
+              },
+              "Action": "sts:AssumeRole"
+            }
+          ]
+        },
+        "Policies": [
+          {
+            "PolicyName": "Runtime",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "logs:CreateLogStream",
+                    "logs:PutLogEvents"
+                  ],
+                  "Resource": {
+                    "Fn::GetAtt": [
+                      "MigrationLogs",
+                      "Arn"
+                    ]
+                  }
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "ec2:CreateNetworkInterface",
+                    "ec2:DescribeNetworkInterfaces",
+                    "ec2:DescribeSubnets",
+                    "ec2:DeleteNetworkInterface",
+                    "ec2:AssignPrivateIpAddresses",
+                    "ec2:UnassignPrivateIpAddresses"
+                  ],
+                  "Resource": "*"
+                },
+                {
+                  "Effect": "Deny",
+                  "Action": [
+                    "ec2:CreateNetworkInterface",
+                    "ec2:DeleteNetworkInterface",
+                    "ec2:AssignPrivateIpAddresses",
+                    "ec2:UnassignPrivateIpAddresses"
+                  ],
+                  "Resource": "*",
+                  "Condition": {
+                    "ArnEquals": {
+                      "lambda:SourceFunctionArn": {
+                        "Fn::Sub": "arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:${AWS::StackName}-migration"
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "MigrationFunction": {
+      "Type": "AWS::Lambda::Function",
+      "Metadata": {
+        "com.aws.cloudformation.Context": {
+          "why": "Manually invoked migration inspection; no public route or automatic migration.",
+          "must": [
+            "Verified database TLS; migrations never run on API startup."
+          ]
+        }
+      },
+      "Properties": {
+        "FunctionName": {
+          "Fn::Sub": "${AWS::StackName}-migration"
+        },
+        "Runtime": "nodejs24.x",
+        "Architectures": [
+          "x86_64"
+        ],
+        "Handler": "index.handler",
+        "MemorySize": 512,
+        "Timeout": 120,
+        "Role": {
+          "Fn::GetAtt": [
+            "MigrationRole",
+            "Arn"
+          ]
+        },
+        "Code": {
+          "S3Bucket": {
+            "Ref": "ArtifactBucket"
+          },
+          "S3Key": {
+            "Ref": "MigrationKey"
+          }
+        },
+        "VpcConfig": {
+          "SubnetIds": {
+            "Ref": "SubnetIds"
+          },
+          "SecurityGroupIds": [
+            {
+              "Ref": "FunctionSecurityGroup"
+            }
+          ]
+        },
+        "Environment": {
+          "Variables": {
+            "DATABASE_URL": {
+              "Fn::Sub": "{{resolve:secretsmanager:${DatabaseSecretArn}:SecretString:DATABASE_URL}}"
+            },
+            "DATABASE_SSL": "verify-full",
+            "DATABASE_CA_FILE": "/var/runtime/ca-cert.pem",
+            "DATABASE_POOL_MAX": "1",
+            "NODE_EXTRA_CA_CERTS": "/var/runtime/ca-cert.pem",
+            "API_RATE_LIMIT": "120",
+            "NODE_ENV": "production"
+          }
+        }
+      },
+      "DependsOn": [
+        "DatabaseIngress",
+        "MigrationLogs"
+      ]
+    },
+    "HttpApi": {
+      "Type": "AWS::ApiGatewayV2::Api",
+      "Metadata": {
+        "com.aws.cloudformation.Context": {
+          "why": "Low fixed cost and throttling, matching existing payload 2.0 handler.",
+          "must": [
+            "Only the exact approved frontend origin may use browser CORS."
+          ]
+        }
+      },
+      "Properties": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-http"
+        },
+        "ProtocolType": "HTTP",
+        "CorsConfiguration": {
+          "AllowOrigins": [
+            {
+              "Ref": "FrontendOrigin"
+            }
+          ],
+          "AllowMethods": [
+            "GET",
+            "POST",
+            "OPTIONS"
+          ],
+          "AllowHeaders": [
+            "content-type"
+          ],
+          "MaxAge": 600
+        }
+      }
+    },
+    "ApiIntegration": {
+      "Type": "AWS::ApiGatewayV2::Integration",
+      "Metadata": {
+        "com.aws.cloudformation.Context": {
+          "why": "Forward requests to NestJS unchanged after edge path rewrite.",
+          "must": []
+        }
+      },
+      "Properties": {
+        "ApiId": {
+          "Ref": "HttpApi"
+        },
+        "IntegrationType": "AWS_PROXY",
+        "IntegrationUri": {
+          "Fn::GetAtt": [
+            "ApiFunction",
+            "Arn"
+          ]
+        },
+        "PayloadFormatVersion": "2.0",
+        "TimeoutInMillis": 20000
+      }
+    },
+    "ApiRoute": {
+      "Type": "AWS::ApiGatewayV2::Route",
+      "Metadata": {
+        "com.aws.cloudformation.Context": {
+          "why": "Nest handles route validation.",
+          "must": []
+        }
+      },
+      "Properties": {
+        "ApiId": {
+          "Ref": "HttpApi"
+        },
+        "RouteKey": "$default",
+        "Target": {
+          "Fn::Join": [
+            "/",
+            [
+              "integrations",
+              {
+                "Ref": "ApiIntegration"
+              }
+            ]
+          ]
+        }
+      }
+    },
+    "ApiStage": {
+      "Type": "AWS::ApiGatewayV2::Stage",
+      "Metadata": {
+        "com.aws.cloudformation.Context": {
+          "why": "Protect five-concurrency account and small database; throttle is best effort.",
+          "must": []
+        }
+      },
+      "Properties": {
+        "ApiId": {
+          "Ref": "HttpApi"
+        },
+        "StageName": "$default",
+        "AutoDeploy": true,
+        "DefaultRouteSettings": {
+          "ThrottlingBurstLimit": 5,
+          "ThrottlingRateLimit": 2
+        }
+      }
+    },
+    "ApiPermission": {
+      "Type": "AWS::Lambda::Permission",
+      "Metadata": {
+        "com.aws.cloudformation.Context": {
+          "why": "Only this API may invoke the public application handler.",
+          "must": []
+        }
+      },
+      "Properties": {
+        "FunctionName": {
+          "Ref": "ApiFunction"
+        },
+        "Action": "lambda:InvokeFunction",
+        "Principal": "apigateway.amazonaws.com",
+        "SourceAccount": {
+          "Ref": "AWS::AccountId"
+        },
+        "SourceArn": {
+          "Fn::Sub": "arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${HttpApi}/*"
+        }
+      }
+    }
+  },
+  "Outputs": {
+    "ApiFunction": {
+      "Value": {
+        "Ref": "ApiFunction"
+      },
+      "Description": "API Lambda"
+    },
+    "MigrationFunction": {
+      "Value": {
+        "Ref": "MigrationFunction"
+      },
+      "Description": "Private migration runner"
+    },
+    "HttpApiId": {
+      "Value": {
+        "Ref": "HttpApi"
+      },
+      "Description": "HTTP API ID"
+    },
+    "FunctionSecurityGroup": {
+      "Value": {
+        "Ref": "FunctionSecurityGroup"
+      },
+      "Description": "Function security group"
+    },
+    "ApiUrl": {
+      "Value": {
+        "Fn::GetAtt": [
+          "HttpApi",
+          "ApiEndpoint"
+        ]
+      }
+    }
+  },
+  "Parameters": {
+    "VpcId": {
+      "Type": "AWS::EC2::VPC::Id"
+    },
+    "SubnetIds": {
+      "Type": "List<AWS::EC2::Subnet::Id>"
+    },
+    "DatabaseSecurityGroup": {
+      "Type": "AWS::EC2::SecurityGroup::Id"
+    },
+    "ArtifactBucket": {
+      "Type": "String"
+    },
+    "ApiKey": {
+      "Type": "String"
+    },
+    "MigrationKey": {
+      "Type": "String"
+    },
+    "DatabaseSecretArn": {
+      "Type": "String",
+      "AllowedPattern": "arn:aws:secretsmanager:.*"
+    },
+    "FrontendOrigin": {
+      "Type": "String",
+      "AllowedPattern": "https://[a-zA-Z0-9.-]+",
+      "Description": "Exact approved HTTPS frontend origin; no wildcard."
+    }
+  }
+}

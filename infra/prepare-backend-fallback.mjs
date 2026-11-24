@@ -1,0 +1,12 @@
+import { readFileSync, writeFileSync } from 'node:fs';
+const app = JSON.parse(readFileSync('infra/app.json'));
+const names = ['FunctionSecurityGroup', 'DatabaseIngress', 'MigrationLogs', 'MigrationRole', 'MigrationFunction', 'ApiLogs', 'ApiRole', 'ApiFunction', 'HttpApi', 'ApiIntegration', 'ApiRoute', 'ApiStage', 'ApiPermission'];
+app.Resources = Object.fromEntries(Object.entries(app.Resources).filter(([name]) => names.includes(name)));
+app.Outputs = Object.fromEntries(Object.entries(app.Outputs).filter(([name]) => ['MigrationFunction', 'ApiFunction', 'HttpApiId', 'FunctionSecurityGroup'].includes(name)));
+app.Outputs.ApiUrl = { Value: { 'Fn::GetAtt': ['HttpApi', 'ApiEndpoint'] } };
+app.Description = 'Paper Plane backend using existing private VPC migration stack; HTTP API and Lambda, no CloudFront, NAT or public RDS. Frontend origin set only after hosting approval.';
+app.Parameters.FrontendOrigin = { Type: 'String', AllowedPattern: 'https://[a-zA-Z0-9.-]+', Description: 'Exact approved HTTPS frontend origin; no wildcard.' };
+app.Resources.HttpApi.Properties.CorsConfiguration = { AllowOrigins: [{ Ref: 'FrontendOrigin' }], AllowMethods: ['GET', 'POST', 'OPTIONS'], AllowHeaders: ['content-type'], MaxAge: 600 };
+app.Resources.HttpApi.Metadata['com.aws.cloudformation.Context'].must.push('Only the exact approved frontend origin may use browser CORS.');
+writeFileSync('infra/backend-fallback.json', JSON.stringify(app, null, 2) + '\n');
+console.log('Backend fallback template prepared; no AWS operations performed');

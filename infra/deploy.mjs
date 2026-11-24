@@ -2,11 +2,13 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync, writeFileSync, mkdirSync, mkdtempSync, unlinkSync, readdirSync, statSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import { parseEnv } from 'node:util';
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 
 const PROFILE = process.env.AWS_PROFILE || 'paper-plane';
 const REGION = 'us-east-2';
 const ROOT = resolve(import.meta.dirname, '..');
+const DATABASE_ENV_FILE = process.env.DATABASE_ENV_FILE || '.deploy-private/rds.env';
+const APP_STACK = process.env.APP_STACK || 'paper-plane-mvp';
 process.chdir(ROOT);
 mkdirSync('.deploy', { recursive: true });
 const baseArgs = ['--profile', PROFILE, '--region', REGION, '--no-cli-pager', '--output', 'json'];
@@ -45,7 +47,7 @@ const [action, arg] = process.argv.slice(2);
 try {
   if (action === 'check') {
     console.log(JSON.stringify(aws(['sts', 'get-caller-identity'])));
-    const env = parseEnv(readFileSync('.deploy-private/rds.env', 'utf8'));
+    const env = parseEnv(readFileSync(DATABASE_ENV_FILE, 'utf8'));
     const url = new URL(env.DATABASE_URL);
     console.log(JSON.stringify({ databaseUrlPresent: !!url.password, host: url.hostname, database: url.pathname, tlsParameters: [...url.searchParams.keys()].filter(k => k.startsWith('ssl')) }));
   } else if (action === 'foundation') {
@@ -55,12 +57,36 @@ try {
     console.log(JSON.stringify(outputs('paper-plane-foundation')));
   } else if (action === 'secret') {
     const f = outputs('paper-plane-foundation');
-    const env = parseEnv(readFileSync('.deploy-private/rds.env', 'utf8'));
+    const env = parseEnv(readFileSync(DATABASE_ENV_FILE, 'utf8'));
     const url = new URL(env.DATABASE_URL);
     if (url.hostname !== 'paper-plane-db.cnyisiuew3ml.us-east-2.rds.amazonaws.com' || !url.password || url.pathname !== '/paperplane') throw new Error('Local DATABASE_URL does not match intended RDS database');
     for (const key of [...url.searchParams.keys()]) if (key.toLowerCase().startsWith('ssl')) url.searchParams.delete(key);
     privateInput({ SecretId: f.DatabaseSecretArn, SecretString: JSON.stringify({ DATABASE_URL: url.toString() }) }, input => aws(['secretsmanager', 'put-secret-value', '--cli-input-json', input], { sensitive: true }));
     console.log('Database URL transferred securely; value not displayed');
+  } else if (action === 'rotate-database-password') {
+    const env = parseEnv(readFileSync(DATABASE_ENV_FILE, 'utf8'));
+    const url = new URL(env.DATABASE_URL);
+    if (url.hostname !== 'paper-plane-db.cnyisiuew3ml.us-east-2.rds.amazonaws.com' || url.pathname !== '/paperplane') throw new Error('Unexpected database target');
+    // Persist the replacement before the remote operation so interruption is recoverable.
+    const pending = resolve('.deploy-private', 'rotation-pending.env');
+    if (statSync(pending, { throwIfNoEntry: false })) throw new Error('Pending rotation exists; reconcile before retrying');
+    const password = randomBytes(36).toString('hex');
+    url.password = password;
+    privateInput({ DBInstanceIdentifier: 'paper-plane-db', MasterUserPassword: password, ApplyImmediately: true }, input => {
+      writeFileSync(pending, `DATABASE_URL=${url.toString()}\n`, { mode: 0o600 });
+      aws(['rds', 'modify-db-instance', '--cli-input-json', input], { sensitive: true });
+    });
+    writeFileSync(DATABASE_ENV_FILE, Object.entries({ ...env, DATABASE_URL: url.toString() }).map(([key, value]) => `${key}=${JSON.stringify(value)}`).join('\n') + '\n', { mode: 0o600 });
+    console.log('RDS rotation requested; local file updated. Wait for RDS, then synchronize secret and Lambda and verify TLS before removing rotation-pending.env.');
+  } else if (action === 'refresh-migration-secret') {
+    const f = outputs('paper-plane-foundation');
+    const o = outputs(APP_STACK);
+    const secret = aws(['secretsmanager', 'get-secret-value', '--secret-id', f.DatabaseSecretArn, '--version-stage', 'AWSCURRENT'], { sensitive: true });
+    const config = aws(['lambda', 'get-function-configuration', '--function-name', o.MigrationFunction], { sensitive: true });
+    const variables = { ...config.Environment.Variables, DATABASE_URL: JSON.parse(secret.SecretString).DATABASE_URL };
+    privateInput({ FunctionName: o.MigrationFunction, RevisionId: config.RevisionId, Environment: { Variables: variables } }, input => aws(['lambda', 'update-function-configuration', '--cli-input-json', input], { sensitive: true }));
+    aws(['lambda', 'wait', 'function-updated-v2', '--function-name', o.MigrationFunction], { sensitive: true });
+    console.log('Migration runner credentials refreshed; values suppressed');
   } else if (action === 'upload') {
     const f = outputs('paper-plane-foundation');
     const dir = resolve(arg || '.deploy/linux');
@@ -98,12 +124,12 @@ try {
     const r = aws(['cloudformation', 'describe-stacks', '--stack-name', 'paper-plane-mvp']).Stacks[0];
     console.log(JSON.stringify({ status: r.StackStatus, reason: r.StackStatusReason, outputs: r.Outputs }, null, 2));
   } else if (action === 'inspect') {
-    const o = outputs('paper-plane-mvp');
+    const o = outputs(APP_STACK);
     const r = invoke(o.MigrationFunction, { action: 'inspect' });
     writeFileSync('.deploy/migration-inspection.json', JSON.stringify(r, null, 2));
     console.log(JSON.stringify(r, null, 2));
   } else if (action === 'migrate') {
-    const o = outputs('paper-plane-mvp');
+    const o = outputs(APP_STACK);
     const report = JSON.parse(readFileSync('.deploy/migration-inspection.json'));
     if (!report.safe || !report.tls) throw new Error('Migration inspection is not safe');
     const result = invoke(o.MigrationFunction, { action: 'apply', expectedPending: report.pending });
