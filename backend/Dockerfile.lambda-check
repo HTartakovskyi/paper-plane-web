@@ -32,10 +32,12 @@ COPY --from=runtime-check /checks/result.txt /linux-check.txt
 FROM build AS migration-build
 WORKDIR /migration
 COPY infra/migration/package*.json ./
-RUN npm ci --omit=dev --no-audit --no-fund
+RUN npm ci --omit=dev --no-bin-links --no-audit --no-fund && \
+    node node_modules/@prisma/engines/scripts/postinstall.js
 COPY infra/migration/index.mjs infra/migration/prisma.config.ts ./
 COPY backend/prisma ./prisma
-RUN python3 /workspace/backend/scripts/archive-lambda.py /migration /output/paper-plane-migration.zip
+RUN node node_modules/prisma/build/index.js --version && \
+    python3 /workspace/backend/scripts/archive-lambda.py /migration /output/paper-plane-migration.zip
 
 FROM export AS export-all
 COPY --from=migration-build /output/paper-plane-migration.zip /

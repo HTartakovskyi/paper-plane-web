@@ -13,7 +13,9 @@ with zipfile.ZipFile(target, 'w', zipfile.ZIP_DEFLATED, compresslevel=9) as arch
         if path.is_file():
             info = zipfile.ZipInfo(path.relative_to(source).as_posix(), (2026, 1, 1, 0, 0, 0))
             info.create_system = 3
-            info.external_attr = (stat.S_IFREG | 0o644) << 16
+            # Prisma's Linux schema engine must retain its executable permission.
+            mode = 0o755 if path.stat().st_mode & 0o111 else 0o644
+            info.external_attr = (stat.S_IFREG | mode) << 16
             archive.writestr(info, path.read_bytes(), compress_type=zipfile.ZIP_DEFLATED, compresslevel=9)
 with zipfile.ZipFile(target) as archive:
     assert archive.testzip() is None, 'ZIP CRC failed'
