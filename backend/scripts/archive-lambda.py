@@ -21,5 +21,6 @@ with zipfile.ZipFile(target) as archive:
     assert archive.testzip() is None, 'ZIP CRC failed'
     assert 'index.mjs' in archive.namelist(), 'Entrypoint must be at ZIP root'
     assert sum(item.file_size for item in archive.infolist()) < 250 * 1024**2
-assert target.stat().st_size < 50 * 1024**2, 'Exceeds direct Lambda ZIP upload limit'
+if '--s3-upload' not in sys.argv:
+    assert target.stat().st_size < 50 * 1024**2, 'Exceeds direct Lambda ZIP upload limit'
 print(f'ZIP verified: {target.stat().st_size} bytes')

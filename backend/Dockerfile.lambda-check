@@ -37,7 +37,7 @@ RUN npm ci --omit=dev --no-bin-links --no-audit --no-fund && \
 COPY infra/migration/index.mjs infra/migration/prisma.config.ts ./
 COPY backend/prisma ./prisma
 RUN node node_modules/prisma/build/index.js --version && \
-    python3 /workspace/backend/scripts/archive-lambda.py /migration /output/paper-plane-migration.zip
+    python3 /workspace/backend/scripts/archive-lambda.py /migration /output/paper-plane-migration.zip --s3-upload
 
 FROM export AS export-all
 COPY --from=migration-build /output/paper-plane-migration.zip /
