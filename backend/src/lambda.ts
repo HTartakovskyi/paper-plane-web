@@ -24,6 +24,11 @@ export function createLambdaHandler(factory = createApplication) {
     if (event.version !== '2.0') {
       return { statusCode: 400, body: JSON.stringify({ message: 'HTTP API payload format 2.0 is required' }) };
     }
+    // The gateway's default route can forward preflight. Gateway owns the exact
+    // origin/method/header allowlist; this response grants no CORS permissions.
+    if (event.requestContext.http.method === 'OPTIONS') {
+      return { statusCode: 204, body: '' };
+    }
     try {
       // Cache the promise as well as the result: overlapping cold calls initialize once.
       initialization ??= factory().then(app => serverless(app.getHttpAdapter().getInstance())).catch(error => {

@@ -39,6 +39,7 @@ Thumbs.db
 .deploy-tools/
 .deploy-private/
 .deploy/
+.wrangler/
 
 # TypeScript incremental build cache
 *.tsbuildinfo

@@ -74,6 +74,11 @@ describe('HTTP API Lambda and local HTTP with isolated Prisma mocks', () => {
     expect((await call(invalid)).statusCode).toBe(400);
     expect(factory).not.toHaveBeenCalled();
   });
+  it('answers forwarded preflight without database access or permissive CORS headers', async () => {
+    expect(await call(event('OPTIONS', '/sessions'))).toEqual({ statusCode: 204, body: '' });
+    expect(factory).not.toHaveBeenCalled();
+    expect(db.gameSession.create).not.toHaveBeenCalled();
+  });
   it.each(['BasicPlane', 'Glider', 'Dart'] as const)('runs %s through a base64 HTTP API body', async planeId => {
     const launch = { ...input, planeId };
     const e = event('POST', `/sessions/${sessionId}/attempts`, Buffer.from(JSON.stringify(launch)).toString('base64'));
