@@ -4,7 +4,7 @@ import { AppService } from './app.service.js';
 import { PrismaModule } from './prisma/prisma.module.js';
 import { SessionsModule } from './sessions/sessions.module.js';
 import { APP_GUARD } from '@nestjs/core';
-import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import { ThrottlerGuard, ThrottlerModule } from './throttling.js';
 import { integerSetting } from './config.js';
 
 @Module({

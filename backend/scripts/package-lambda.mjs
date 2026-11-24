@@ -34,7 +34,7 @@ cpSync(stagedMath, mathLink, { recursive: true });
 // Both package scopes are ESM; Lambda loads this thin root entrypoint.
 writeFileSync(join(artifact, 'package.json'), JSON.stringify({ type: 'module' }));
 writeFileSync(join(artifact, 'index.mjs'), "export { handler } from './backend/dist/src/lambda.js';\n");
-const smoke = spawnSync(process.execPath, ['--input-type=module', '-e',
+const smoke = spawnSync(process.execPath, ['--no-experimental-require-module', '--no-experimental-detect-module', '--input-type=module', '-e',
   "const m = await import('./index.mjs'); if(typeof m.handler !== 'function') process.exit(1)"],
   { cwd: artifact, stdio: 'inherit' });
 if (smoke.status !== 0) throw new Error('Artifact import failed');

@@ -20,8 +20,8 @@ FROM ${LAMBDA_IMAGE} AS runtime-check
 COPY --from=build /output/unpacked ${LAMBDA_TASK_ROOT}
 COPY backend/scripts/verify-artifact.mjs backend/scripts/smoke-artifact.mjs /checks/
 # Only unpacked production dependencies exist here, without build-time node_modules.
-RUN node /checks/verify-artifact.mjs ${LAMBDA_TASK_ROOT} --linux && \
-    node /checks/smoke-artifact.mjs ${LAMBDA_TASK_ROOT} --linux && \
+RUN node --no-experimental-require-module --no-experimental-detect-module /checks/verify-artifact.mjs ${LAMBDA_TASK_ROOT} --linux && \
+    node --no-experimental-require-module --no-experimental-detect-module /checks/smoke-artifact.mjs ${LAMBDA_TASK_ROOT} --linux && \
     echo 'Linux x64 / Node24 runtime checks passed; DB lifecycle stubbed' > /checks/result.txt
 
 FROM scratch AS export
